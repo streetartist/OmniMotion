@@ -184,6 +184,7 @@ set(OMNIMOTION_PATH "/path/to/OmniMotion")
 # 添加头文件路径
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${OMNIMOTION_PATH}/include
+    ${OMNIMOTION_PATH}/platform    # STM32 预写适配层
 )
 
 # 添加源文件
@@ -194,11 +195,75 @@ target_sources(${PROJECT_NAME} PRIVATE
 
 # C++17 标准
 set(CMAKE_CXX_STANDARD 17)
+
+# 定义 STM32 系列宏 (根据实际芯片选择)
+target_compile_definitions(${PROJECT_NAME} PRIVATE STM32G4)
 ```
 
 ## 2.2 第一个程序
 
-### 创建 HAL 适配文件
+OmniMotion 提供两种 HAL 适配方式：
+
+1. **使用预写适配层**（推荐）：直接使用 `platform/stm32` 目录下的代码
+2. **手动编写适配**：自己实现 HAL 接口
+
+### 方式一：使用预写 STM32 适配层（推荐）
+
+OmniMotion 在 `platform/stm32/` 目录下提供了完整的 STM32 HAL 适配实现，可直接使用。
+
+**包含的适配类：**
+
+| 文件 | 类 | 功能 |
+|------|-----|------|
+| stm32_gpio.hpp | Stm32Gpio | GPIO 控制 |
+| stm32_gpio.hpp | Stm32GpioInterrupt | GPIO + 中断 |
+| stm32_pwm.hpp | Stm32Pwm | 单通道 PWM |
+| stm32_pwm.hpp | Stm32PwmComplementary | 互补 PWM |
+| stm32_pwm3phase.hpp | Stm32Pwm3Phase | 三相 PWM (FOC) |
+| stm32_encoder.hpp | Stm32Encoder | 正交编码器 |
+| stm32_encoder.hpp | Stm32EncoderWithIndex | 带 Z 相编码器 |
+| stm32_encoder.hpp | Stm32SpiEncoder | SPI 绝对式编码器 |
+| stm32_adc.hpp | Stm32Adc | ADC 采样 |
+| stm32_can.hpp | Stm32Can | CAN 通信 |
+| stm32_timer.hpp | Stm32Timer | 定时器 |
+
+**使用方法：**
+
+```cpp
+// main.cpp
+#include "stm32/stm32_hal.hpp"  // 包含所有 STM32 适配
+#include <omni/driver/stepper_driver.hpp>
+#include <omni/app/motor_controller.hpp>
+
+using namespace omni::platform::stm32;
+
+// CubeMX 生成的句柄
+extern TIM_HandleTypeDef htim1;
+extern TIM_HandleTypeDef htim2;
+
+// 直接使用预写的类
+Stm32Gpio stepPin(GPIOA, GPIO_PIN_0);
+Stm32Gpio dirPin(GPIOA, GPIO_PIN_1);
+Stm32Gpio enablePin(GPIOA, GPIO_PIN_2);
+Stm32Encoder encoder(&htim2);
+
+// 创建驱动
+omni::driver::StepperDriver stepper(&stepPin, &dirPin, &encoder, &enablePin);
+```
+
+**支持的 STM32 系列：**
+
+需要在编译时定义对应的宏：
+
+| 系列 | 编译宏 |
+|------|--------|
+| STM32F1 | `-DSTM32F1` |
+| STM32F4 | `-DSTM32F4` |
+| STM32F7 | `-DSTM32F7` |
+| STM32G4 | `-DSTM32G4` |
+| STM32H7 | `-DSTM32H7` |
+
+### 方式二：手动创建 HAL 适配文件
 
 创建 `motor_hal.hpp`：
 
@@ -311,9 +376,17 @@ st-flash write build/Debug/project.bin 0x8000000
 
 # 第三章 HAL 硬件抽象层
 
-HAL 层是 OmniMotion 与硬件之间的桥梁。用户需要根据自己的 MCU 实现这些接口。
+HAL 层是 OmniMotion 与硬件之间的桥梁。
+
+> **提示**：OmniMotion 已在 `platform/stm32/` 目录下提供了完整的 STM32 HAL 适配实现，
+> 可直接 `#include "stm32/stm32_hal.hpp"` 使用，无需手动编写以下代码。
+> 本章内容供需要自定义或移植到其他平台的用户参考。
 
 ## 3.1 GPIO 适配
+
+**预写实现**：`platform/stm32/stm32_gpio.hpp` 中的 `Stm32Gpio` 类
+
+**手动实现参考**：
 
 ```cpp
 class Stm32Gpio : public omni::hal::IGpio {
@@ -346,6 +419,10 @@ ledPin.toggle();      // 翻转
 ```
 
 ## 3.2 PWM 适配
+
+**预写实现**：`platform/stm32/stm32_pwm.hpp` 中的 `Stm32Pwm`、`Stm32PwmComplementary` 类
+
+**手动实现参考**：
 
 ```cpp
 class Stm32Pwm : public omni::hal::IPwm {
@@ -391,6 +468,13 @@ motorPwm.enable(true);
 ```
 
 ## 3.3 编码器适配
+
+**预写实现**：`platform/stm32/stm32_encoder.hpp` 中的：
+- `Stm32Encoder` - 正交编码器
+- `Stm32EncoderWithIndex` - 带 Z 相索引
+- `Stm32SpiEncoder` - SPI 绝对式编码器 (AS5047, MA730 等)
+
+**手动实现参考**：
 
 ### 增量式编码器（定时器模式）
 
@@ -466,6 +550,10 @@ private:
 
 ## 3.4 ADC 适配
 
+**预写实现**：`platform/stm32/stm32_adc.hpp` 中的 `Stm32Adc` 类
+
+**手动实现参考**：
+
 ```cpp
 class Stm32Adc : public omni::hal::IAdc {
 public:
@@ -495,6 +583,10 @@ float current = currentAdc.read() * 10.0f;  // 假设增益10
 ```
 
 ## 3.5 通信接口适配
+
+**预写实现**：`platform/stm32/stm32_can.hpp` 中的 `Stm32Can` 类
+
+**手动实现参考**：
 
 ### UART 适配
 
