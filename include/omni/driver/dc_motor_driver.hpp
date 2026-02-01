@@ -7,6 +7,7 @@
 
 #include "motor_driver.hpp"
 #include "omni/hal/hal.hpp"
+#include "omni/control/pid_controller.hpp"
 
 namespace omni::driver {
 
@@ -73,7 +74,7 @@ public:
     void setParams(const MotorParams& params) override;
     MotorParams getParams() const override;
 
-    void update() override;
+    void update(float dt) override;
 
     MotorType getType() const override { return MotorType::BrushedDC; }
     const char* getName() const override { return "Brushed DC Motor Driver"; }
@@ -160,13 +161,13 @@ private:
     float currentOffset_;
 
     // Control targets
-    float positionRef_;
-    float velocityRef_;
-    float dutyRef_;
+    float targetPosition_;
+    float targetVelocity_;
+    float targetDuty_;
 
-    // Controllers - forward declaration
-    struct Controllers;
-    Controllers* ctrl_;
+    // Controllers
+    control::PidController velocityPid_;
+    control::PidController positionPid_;
 
     // Internal methods
     void readFeedback();

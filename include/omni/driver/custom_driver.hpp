@@ -22,7 +22,7 @@ public:
     using InitCallback = std::function<bool()>;
     using DeinitCallback = std::function<void()>;
     using EnableCallback = std::function<void(bool)>;
-    using UpdateCallback = std::function<void()>;
+    using UpdateCallback = std::function<void(float)>;
     using ControlCallback = std::function<void(ControlMode, float)>;
     using StateCallback = std::function<MotorState()>;
     using PositionCallback = std::function<float()>;
@@ -62,7 +62,7 @@ public:
     void setParams(const MotorParams& params) override;
     MotorParams getParams() const override;
 
-    void update() override;
+    void update(float dt) override;
 
     MotorType getType() const override { return motorType_; }
     const char* getName() const override { return name_.c_str(); }

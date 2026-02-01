@@ -7,6 +7,7 @@
 
 #include "motor_driver.hpp"
 #include "omni/hal/hal.hpp"
+#include "omni/control/pid_controller.hpp"
 
 namespace omni::driver {
 
@@ -132,7 +133,7 @@ public:
     void setParams(const MotorParams& params) override;
     MotorParams getParams() const override;
 
-    void update() override;
+    void update(float dt) override;
 
     MotorType getType() const override { return MotorType::LinearSynchronous; }
     const char* getName() const override { return "Linear Synchronous Motor"; }
@@ -205,17 +206,21 @@ private:
     float idRef_, iqRef_;
 
     // Control targets
-    float positionRef_;
-    float velocityRef_;
-    float forceRef_;
+    float targetPosition_;
+    float targetVelocity_;
+    float targetForce_;
+    float targetId_;
+    float targetIq_;
 
     // Controllers
-    struct Controllers;
-    Controllers* ctrl_;
+    control::PidController idPid_;
+    control::PidController iqPid_;
+    control::PidController velocityPid_;
+    control::PidController positionPid_;
 
     // Internal methods
     void readFeedback();
-    void runFocLoop();
+    void runFocLoop(float dt);
     float positionToElectricalAngle(float pos) const;
 };
 

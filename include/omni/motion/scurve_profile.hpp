@@ -121,50 +121,103 @@ public:
             // Reduced profile - no constant velocity phase
             // Need to solve for reduced peak velocity
 
-            // Iterative solution
-            float vPeakLow = startVel;
-            float vPeakHigh = vMax;
+            // Try to find exact solution assuming Max Acceleration is reached
+            // Equation: 2*v_pk^2 + (2*a^2/j)*v_pk + [ (a^2/j)*(vs+ve) - vs^2 - ve^2 - 2*a*D ] = 0
+            
+            float a = aMax;
+            float j = jMax;
+            float D = distance;
+            float vs = startVel;
+            float ve = endVel;
 
-            for (int i = 0; i < 20; i++) {
-                peakVel_ = (vPeakLow + vPeakHigh) / 2.0f;
+            float termA = 2.0f;
+            float termB = 2.0f * a * a / j;
+            float termC = (a * a / j) * (vs + ve) - vs * vs - ve * ve - 2.0f * a * D;
 
-                // Recalculate with new peak velocity
-                float accelNeeded = peakVel_ - startVel;
-                if (accelNeeded <= 2.0f * vj) {
-                    // Only jerk phases
-                    float tjActual = std::sqrt(accelNeeded / jMax);
-                    segmentTimes_[0] = tjActual;
-                    segmentTimes_[1] = 0;
-                    segmentTimes_[2] = tjActual;
-                } else {
+            float delta = termB * termB - 4.0f * termA * termC;
+
+            bool exactSolutionFound = false;
+
+            if (delta >= 0) {
+                float vSol = (-termB + std::sqrt(delta)) / (2.0f * termA);
+                
+                // Verify assumption: Max Accel reached?
+                // Requires velocity change >= a^2/j
+                float minDeltaV = a * a / j;
+                if ((vSol - vs) >= minDeltaV && (vSol - ve) >= minDeltaV) {
+                    peakVel_ = vSol;
+                    
+                    // Recalculate times with exact peak velocity
+                    float accelNeeded = peakVel_ - startVel;
                     segmentTimes_[0] = tj;
                     segmentTimes_[1] = (accelNeeded - 2.0f * vj) / aMax;
                     segmentTimes_[2] = tj;
-                }
+                    
+                    segmentTimes_[3] = 0;
 
-                float decelNeeded = peakVel_ - endVel;
-                if (decelNeeded <= 2.0f * vj) {
-                    float tjActual = std::sqrt(decelNeeded / jMax);
-                    segmentTimes_[4] = tjActual;
-                    segmentTimes_[5] = 0;
-                    segmentTimes_[6] = tjActual;
-                } else {
+                    float decelNeeded = peakVel_ - endVel;
                     segmentTimes_[4] = tj;
                     segmentTimes_[5] = (decelNeeded - 2.0f * vj) / aMax;
                     segmentTimes_[6] = tj;
+
+                    exactSolutionFound = true;
                 }
+            }
 
-                segmentTimes_[3] = 0;
+            if (!exactSolutionFound) {
+                // Iterative solution as fallback (for triangular acceleration case)
+                // Happens when move is too short to reach max acceleration
+                float vPeakLow = std::max(startVel, endVel);
+                float vPeakHigh = vMax;
 
-                float totalDist = calculateTotalDistance();
-                if (std::abs(totalDist - distance) < 1e-6f) {
-                    break;
-                }
+                for (int i = 0; i < 20; i++) {
+                    peakVel_ = (vPeakLow + vPeakHigh) / 2.0f;
 
-                if (totalDist < distance) {
-                    vPeakLow = peakVel_;
-                } else {
-                    vPeakHigh = peakVel_;
+                    float currentAccelDist = 0;
+                    float accelNeeded = peakVel_ - startVel;
+                    if (accelNeeded <= 2.0f * vj) {
+                        float tjActual = std::sqrt(accelNeeded / jMax);
+                        segmentTimes_[0] = tjActual;
+                        segmentTimes_[1] = 0;
+                        segmentTimes_[2] = tjActual;
+                        // Triangular accel: Peak acceleration is jMax * tjActual
+                        currentAccelDist = calculateAccelDistance(startVel, tjActual, 0, jMax, jMax * tjActual);
+                    } else {
+                        segmentTimes_[0] = tj;
+                        segmentTimes_[1] = (accelNeeded - 2.0f * vj) / aMax;
+                        segmentTimes_[2] = tj;
+                        currentAccelDist = calculateAccelDistance(startVel, tj, segmentTimes_[1], jMax, aMax);
+                    }
+
+                    float currentDecelDist = 0; 
+                    float decelNeeded = peakVel_ - endVel;
+                    if (decelNeeded <= 2.0f * vj) {
+                        float tjActual = std::sqrt(decelNeeded / jMax);
+                        segmentTimes_[4] = tjActual;
+                        segmentTimes_[5] = 0;
+                        segmentTimes_[6] = tjActual;
+                        // Triangular decel: Peak deceleration is jMax * tjActual
+                        currentDecelDist = calculateDecelDistance(peakVel_, tjActual, 0, jMax, jMax * tjActual);
+                    } else {
+                        segmentTimes_[4] = tj;
+                        segmentTimes_[5] = (decelNeeded - 2.0f * vj) / aMax;
+                        segmentTimes_[6] = tj;
+                        currentDecelDist = calculateDecelDistance(peakVel_, tj, segmentTimes_[5], jMax, aMax);
+                    }
+
+                    segmentTimes_[3] = 0;
+
+                    float totalDist = currentAccelDist + currentDecelDist;
+                    // Tolerance check
+                    if (std::abs(totalDist - distance) < 1e-4f) { // 0.1mm tolerance usually enough
+                        break;
+                    }
+
+                    if (totalDist < distance) {
+                        vPeakLow = peakVel_;
+                    } else {
+                        vPeakHigh = peakVel_;
+                    }
                 }
             }
         }

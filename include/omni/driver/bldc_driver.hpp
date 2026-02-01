@@ -74,7 +74,7 @@ public:
     void setParams(const MotorParams& params) override;
     MotorParams getParams() const override;
 
-    void update() override;
+    void update(float dt) override;
 
     MotorType getType() const override { return MotorType::BLDC; }
     const char* getName() const override { return "BLDC/PMSM Driver"; }
@@ -207,9 +207,9 @@ public:
 private:
     // Hardware interfaces
     hal::IPwm3Phase* pwm_;
-    hal::IAdc* adcA_;
-    hal::IAdc* adcB_;
-    hal::IAdc* adcC_;
+    hal::IAdc* currentAdcA_;
+    hal::IAdc* currentAdcB_;
+    hal::IAdc* currentAdcC_;
     hal::IEncoder* encoder_;
     hal::IHallSensor* hall_;
 
@@ -220,59 +220,32 @@ private:
     FocMode focMode_;
     bool enabled_;
     uint32_t errorCode_;
+    
+    // Internal state
+    int polePairs_;
+    float electricalAngle_;
+    float currentGain_;
 
     // Current measurements
-    float ia_, ib_, ic_;
-    float ialpha_, ibeta_;
-    float id_, iq_;
-    float idRef_, iqRef_;
-
-    // Current sensor calibration
-    float currentGainA_, currentGainB_, currentGainC_;
-    float currentOffsetA_, currentOffsetB_, currentOffsetC_;
-
-    // Position/velocity
-    float electricalAngle_;
-    float mechanicalAngle_;
-    float velocity_;
-    float encoderOffset_;
+    float id_;
+    float iq_;
 
     // Control targets
-    float positionRef_;
-    float velocityRef_;
-    float torqueRef_;
-    float voltageRef_;
-    float dutyRef_;
+    float targetPosition_;
+    float targetVelocity_;
+    float targetIq_;
+    float targetId_;
+    float targetVoltage_;
+    float targetDuty_;
 
-    // Control outputs
-    float vd_, vq_;
-    float valpha_, vbeta_;
-    float dutyA_, dutyB_, dutyC_;
-
-    // Controllers - will be initialized in implementation
-    // Using forward declaration pattern
-    struct Controllers;
-    Controllers* ctrl_;
-
-    // Features
-    bool fieldWeakeningEnabled_;
-    float maxNegativeId_;
-    bool mtpaEnabled_;
+    // Controllers
+    control::PidController idPid_;
+    control::PidController iqPid_;
+    control::PidController velocityPid_;
+    control::PidController positionPid_;
 
     // Internal methods
-    void readCurrents();
-    void readPosition();
-    void runCurrentLoop();
-    void runVelocityLoop();
-    void runPositionLoop();
-    void applyPwm();
-
-    // Transforms
-    void clarkTransform(float ia, float ib, float ic, float& alpha, float& beta);
-    void parkTransform(float alpha, float beta, float theta, float& d, float& q);
-    void invParkTransform(float d, float q, float theta, float& alpha, float& beta);
-    void invClarkTransform(float alpha, float beta, float& a, float& b, float& c);
-    void svpwm(float alpha, float beta, float& ta, float& tb, float& tc);
+    void setSvpwm(float valpha, float vbeta);
 };
 
 }  // namespace omni::driver

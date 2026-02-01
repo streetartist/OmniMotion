@@ -87,7 +87,7 @@ uint32_t DcMotorDriver::getErrorCode() const { return errorCode_; }
 void DcMotorDriver::clearErrors() { errorCode_ = 0; }
 bool DcMotorDriver::hasFault() const { return errorCode_ != 0; }
 
-void DcMotorDriver::update() {
+void DcMotorDriver::update(float dt) {
     if (!enabled_) return;
 
     float duty = targetDuty_;
@@ -96,13 +96,14 @@ void DcMotorDriver::update() {
         case ControlMode::Position:
             if (encoder_) {
                 float posError = targetPosition_ - encoder_->getAngle();
-                duty = positionPid_.compute(posError);
+                // Assuming result is duty, limited by PID outputLimit
+                duty = positionPid_.update(targetPosition_, encoder_->getAngle(), dt);
             }
             break;
         case ControlMode::Velocity:
             if (encoder_) {
                 float velError = targetVelocity_ - encoder_->getVelocity();
-                duty = velocityPid_.compute(velError);
+                duty = velocityPid_.update(targetVelocity_, encoder_->getVelocity(), dt);
             }
             break;
         default:

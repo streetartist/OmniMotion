@@ -26,13 +26,6 @@ LinearMotorDriver::LinearMotorDriver()
 // LinearSyncMotorDriver 实现
 // ============================================================================
 
-struct LinearSyncMotorDriver::Controllers {
-    control::PIDController idPid;
-    control::PIDController iqPid;
-    control::PIDController velocityPid;
-    control::PIDController positionPid;
-};
-
 LinearSyncMotorDriver::LinearSyncMotorDriver(hal::IPwm3Phase* pwm,
                                              hal::IAdc* currentAdcA,
                                              hal::IAdc* currentAdcB,
@@ -40,27 +33,28 @@ LinearSyncMotorDriver::LinearSyncMotorDriver(hal::IPwm3Phase* pwm,
     : pwm_(pwm), adcA_(currentAdcA), adcB_(currentAdcB)
     , linearEncoder_(linearEncoder)
     , polePitch_(0.032f), forceConstant_(50.0f)
-    , controlMode_(ControlMode::Position)
+    , state_(MotorState::Idle), params_(), controlMode_(ControlMode::Position)
     , enabled_(false), errorCode_(0)
-    , commutationOffset_(0)
+    , linearPosition_(0), linearVelocity_(0), electricalAngle_(0), commutationOffset_(0)
+    , ia_(0), ib_(0), id_(0), iq_(0)
+    , targetPosition_(0), targetVelocity_(0), targetForce_(0), targetId_(0), targetIq_(0)
 {
-    ctrl_ = new Controllers();
 }
 
 bool LinearSyncMotorDriver::init() {
     if (pwm_) pwm_->enable(false);
-    ctrl_->idPid.setGains(0.5f, 10.0f, 0);
-    ctrl_->iqPid.setGains(0.5f, 10.0f, 0);
-    ctrl_->velocityPid.setGains(10.0f, 1.0f, 0);
-    ctrl_->positionPid.setGains(50.0f, 0, 5.0f);
     return true;
 }
 
-void LinearSyncMotorDriver::deinit() { disable(); delete ctrl_; }
+void LinearSyncMotorDriver::deinit() { disable(); }
 
 void LinearSyncMotorDriver::enable() {
     if (pwm_) pwm_->enable(true);
     enabled_ = true;
+    idPid_.reset();
+    iqPid_.reset();
+    velocityPid_.reset();
+    positionPid_.reset();
 }
 
 void LinearSyncMotorDriver::disable() {
@@ -78,16 +72,16 @@ void LinearSyncMotorDriver::emergencyStop() {
 void LinearSyncMotorDriver::setControlMode(ControlMode mode) { controlMode_ = mode; }
 ControlMode LinearSyncMotorDriver::getControlMode() const { return controlMode_; }
 
-void LinearSyncMotorDriver::setPosition(float pos) { positionRef_ = pos; }
-void LinearSyncMotorDriver::setVelocity(float vel) { velocityRef_ = vel; }
-void LinearSyncMotorDriver::setTorque(float force) { forceRef_ = force; }
-void LinearSyncMotorDriver::setCurrent(float current) { iqRef_ = current; }
+void LinearSyncMotorDriver::setPosition(float pos) { targetPosition_ = pos; }
+void LinearSyncMotorDriver::setVelocity(float vel) { targetVelocity_ = vel; }
+void LinearSyncMotorDriver::setTorque(float force) { targetForce_ = force; }
+void LinearSyncMotorDriver::setCurrent(float current) { targetIq_ = current; }
 void LinearSyncMotorDriver::setVoltage(float) { }
 void LinearSyncMotorDriver::setDuty(float) { }
 
-void LinearSyncMotorDriver::setLinearPosition(float pos) { positionRef_ = pos; }
-void LinearSyncMotorDriver::setLinearVelocity(float vel) { velocityRef_ = vel; }
-void LinearSyncMotorDriver::setForce(float force) { forceRef_ = force; }
+void LinearSyncMotorDriver::setLinearPosition(float pos) { targetPosition_ = pos; }
+void LinearSyncMotorDriver::setLinearVelocity(float vel) { targetVelocity_ = vel; }
+void LinearSyncMotorDriver::setForce(float force) { targetForce_ = force; }
 
 MotorState LinearSyncMotorDriver::getState() const { return state_; }
 float LinearSyncMotorDriver::getPosition() const { return linearPosition_; }
@@ -107,11 +101,11 @@ uint32_t LinearSyncMotorDriver::getErrorCode() const { return errorCode_; }
 void LinearSyncMotorDriver::clearErrors() { errorCode_ = 0; }
 bool LinearSyncMotorDriver::hasFault() const { return errorCode_ != 0; }
 
-void LinearSyncMotorDriver::update() {
+void LinearSyncMotorDriver::update(float dt) {
     if (!enabled_) return;
 
     readFeedback();
-    runFocLoop();
+    runFocLoop(dt);
 }
 
 void LinearSyncMotorDriver::readFeedback() {
@@ -129,7 +123,7 @@ void LinearSyncMotorDriver::readFeedback() {
     ib_ = adcB_ ? adcB_->read() : 0;
 }
 
-void LinearSyncMotorDriver::runFocLoop() {
+void LinearSyncMotorDriver::runFocLoop(float dt) {
     // Clarke 变换
     float ialpha = ia_;
     float ibeta = (ia_ + 2*ib_) / SQRT3;
@@ -144,24 +138,25 @@ void LinearSyncMotorDriver::runFocLoop() {
     float targetIq = 0;
     switch (controlMode_) {
         case ControlMode::Position:
-            targetIq = ctrl_->positionPid.compute(positionRef_ - linearPosition_);
+            targetVelocity_ = positionPid_.update(targetPosition_, linearPosition_, dt);
+            targetIq = velocityPid_.update(targetVelocity_, linearVelocity_, dt);
             break;
         case ControlMode::Velocity:
-            targetIq = ctrl_->velocityPid.compute(velocityRef_ - linearVelocity_);
+            targetIq = velocityPid_.update(targetVelocity_, linearVelocity_, dt);
             break;
         case ControlMode::Torque:
-            targetIq = forceRef_ / forceConstant_;
+            targetIq = targetForce_ / forceConstant_;
             break;
         case ControlMode::Current:
-            targetIq = iqRef_;
+            targetIq = targetIq_;
             break;
         default:
             break;
     }
 
     // 电流环
-    float vd = ctrl_->idPid.compute(0 - id_);
-    float vq = ctrl_->iqPid.compute(targetIq - iq_);
+    float vd = idPid_.update(0, id_, dt);
+    float vq = iqPid_.update(targetIq, iq_, dt);
 
     // 逆 Park 变换
     float valpha = vd * cosTheta - vq * sinTheta;
@@ -174,11 +169,17 @@ void LinearSyncMotorDriver::runFocLoop() {
 
     float vmin = std::min({va, vb, vc});
     float vmax = std::max({va, vb, vc});
-    float voffset = (vmin + vmax) * 0.5f;
+    float voffset = -0.5f * (vmin + vmax);
+    
+    float vBus = params_.maxVoltage > 0 ? params_.maxVoltage : 24.0f;
 
-    float da = std::clamp(va - voffset + 0.5f, 0.0f, 1.0f);
-    float db = std::clamp(vb - voffset + 0.5f, 0.0f, 1.0f);
-    float dc = std::clamp(vc - voffset + 0.5f, 0.0f, 1.0f);
+    float da = (va + voffset) / vBus + 0.5f;
+    float db = (vb + voffset) / vBus + 0.5f;
+    float dc = (vc + voffset) / vBus + 0.5f;
+
+    da = std::clamp(da, 0.0f, 1.0f);
+    db = std::clamp(db, 0.0f, 1.0f);
+    dc = std::clamp(dc, 0.0f, 1.0f);
 
     if (pwm_) pwm_->setDuty(da, db, dc);
 }

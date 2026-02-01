@@ -163,10 +163,11 @@ public:
 
     /**
      * @brief Update the motor control loop
+     * @param dt Time step in seconds
      *
      * Must be called periodically at the control rate.
      */
-    virtual void update() = 0;
+    virtual void update(float dt) = 0;
 
     // ===== Type Information =====
 

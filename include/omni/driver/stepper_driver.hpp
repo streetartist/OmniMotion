@@ -70,7 +70,7 @@ public:
     void setParams(const MotorParams& params) override;
     MotorParams getParams() const override;
 
-    void update() override;
+    void update(float dt) override;
 
     MotorType getType() const override { return MotorType::Stepper; }
     const char* getName() const override { return "Stepper Motor Driver"; }

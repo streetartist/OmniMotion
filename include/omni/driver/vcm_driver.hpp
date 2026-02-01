@@ -7,6 +7,7 @@
 
 #include "motor_driver.hpp"
 #include "omni/hal/hal.hpp"
+#include "omni/control/pid_controller.hpp"
 
 namespace omni::driver {
 
@@ -63,7 +64,7 @@ public:
     void setParams(const MotorParams& params) override;
     MotorParams getParams() const override;
 
-    void update() override;
+    void update(float dt) override;
 
     MotorType getType() const override { return MotorType::VoiceCoil; }
     const char* getName() const override { return "Voice Coil Motor Driver"; }
@@ -179,13 +180,14 @@ private:
     float force_;
 
     // Control targets
-    float positionRef_;
-    float forceRef_;
-    float currentRef_;
+    float targetPosition_;
+    float targetForce_;
+    float targetCurrent_;
+    float targetDuty_;
 
     // Controllers
-    struct Controllers;
-    Controllers* ctrl_;
+    control::PidController positionPid_;
+    control::PidController currentPid_;
 
     // Internal methods
     void readPosition();

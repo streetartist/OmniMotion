@@ -68,20 +68,20 @@ uint32_t VcmDriver::getErrorCode() const { return errorCode_; }
 void VcmDriver::clearErrors() { errorCode_ = 0; }
 bool VcmDriver::hasFault() const { return errorCode_ != 0; }
 
-void VcmDriver::update() {
+void VcmDriver::update(float dt) {
     if (!enabled_) return;
 
-    float output = 0.5f;  // 中点
+    float output = 0.5f;  // Middle point
 
     switch (controlMode_) {
         case ControlMode::Position: {
-            float error = targetPosition_ - getPosition();
-            output = 0.5f + positionPid_.compute(error);
+            float pos = getPosition();
+            output = 0.5f + positionPid_.update(targetPosition_, pos, dt);
             break;
         }
         case ControlMode::Current: {
-            float error = targetCurrent_ - getCurrent();
-            output = 0.5f + currentPid_.compute(error);
+            float current = getCurrent();
+            output = 0.5f + currentPid_.update(targetCurrent_, current, dt);
             break;
         }
         case ControlMode::Duty:

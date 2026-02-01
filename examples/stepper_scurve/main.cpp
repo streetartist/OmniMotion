@@ -71,7 +71,7 @@ int main() {
 
     while (!motor.isSettled() && simTime < 10.0f) {
         motor.update(dt);
-        stepper.update();
+        // stepper.update(dt); // Called by motor.update()
 
         // Print status every 100ms
         if (simTime - lastPrintTime >= 0.1f) {

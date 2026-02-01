@@ -175,7 +175,7 @@ MotorParams StepperDriver::getParams() const {
     return params_;
 }
 
-void StepperDriver::update() {
+void StepperDriver::update(float dt) {
     if (!enabled_) return;
 
     // Update velocity based on target
@@ -194,7 +194,7 @@ void StepperDriver::update() {
 
     // Accumulate steps
     if (stepsPerSec > 0) {
-        stepAccumulator_ += stepsPerSec * 0.001f;  // Assume 1ms update rate
+        stepAccumulator_ += stepsPerSec * dt;
 
         while (stepAccumulator_ >= 1.0f) {
             generateStep();

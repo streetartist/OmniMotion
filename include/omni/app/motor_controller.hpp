@@ -425,10 +425,15 @@ public:
         }
 
         // Send command to driver
-        driver_->setPosition(cmd.position);
+        if (impedanceEnabled_) {
+            driver_->setTorque(output);
+        } else {
+            driver_->setPosition(cmd.position);
+            // Optionally set Feedforward velocity/torque if driver supports it
+        }
 
         // Update driver
-        driver_->update();
+        driver_->update(dt);
     }
 
     /**

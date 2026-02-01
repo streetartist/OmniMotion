@@ -54,7 +54,7 @@ public:
     void setParams(const MotorParams& params) override;
     MotorParams getParams() const override;
 
-    void update() override;
+    void update(float dt) override;
 
     MotorType getType() const override { return MotorType::RCServo; }
     const char* getName() const override { return "RC Servo Driver"; }

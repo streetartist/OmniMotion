@@ -67,8 +67,9 @@ uint32_t ServoDriver::getErrorCode() const { return errorCode_; }
 void ServoDriver::clearErrors() { errorCode_ = 0; }
 bool ServoDriver::hasFault() const { return errorCode_ != 0; }
 
-void ServoDriver::update() {
+void ServoDriver::update(float dt) {
     if (!enabled_) return;
+    (void)dt;
 
     currentAngle_ = targetAngle_;
 

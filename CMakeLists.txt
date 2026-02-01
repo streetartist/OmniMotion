@@ -28,13 +28,7 @@ endif()
 
 # Source files
 file(GLOB_RECURSE OMNI_SOURCES
-    "src/hal/*.cpp"
-    "src/driver/*.cpp"
-    "src/protocol/*.cpp"
-    "src/control/*.cpp"
-    "src/motion/*.cpp"
-    "src/app/*.cpp"
-    "src/utils/*.cpp"
+    "src/*.cpp"
 )
 
 # Create library
