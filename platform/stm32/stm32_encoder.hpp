@@ -41,10 +41,12 @@ namespace stm32 {
  *
  * Stm32Encoder encoder(&htim2);
  * encoder.setResolution(4096);  // 4096 线编码器
+ * encoder.begin();              // 或 init()
  *
  * // 在控制循环中
  * encoder.update(0.001f);  // 更新速度计算
- * float angle = encoder.getAngle();
+ * float angle = encoder.getAngle();      // 绝对角度 (可超过2π)
+ * float wrapped = encoder.getWrappedAngle(); // 单圈角度 [0, 2π)
  * float velocity = encoder.getVelocity();
  * @endcode
  */
@@ -63,6 +65,8 @@ public:
         , velocity_(0)
         , overflow_(0)
         , initialized_(false)
+        , velocityFilter_(0.1f)
+        , prevCount_(0)
     {
     }
 
@@ -94,6 +98,7 @@ public:
         // 设置计数器初值为中间值，便于检测溢出
         __HAL_TIM_SET_COUNTER(htim_, 32768);
         lastCount_ = 32768;
+        prevCount_ = 0;
 
         initialized_ = true;
     }
@@ -128,10 +133,21 @@ public:
     }
 
     /**
-     * @brief 获取角度 (0 ~ 2π)
-     * @return 角度 (弧度)
+     * @brief 获取绝对角度 (可以超过 2π)
+     * @return 绝对角度 (弧度)
+     * @note 适用于位置控制
      */
     float getAngle() override {
+        int32_t count = getCount();
+        return static_cast<float>(count) / cpr_ * 2.0f * M_PI;
+    }
+
+    /**
+     * @brief 获取单圈内角度 (0 ~ 2π)
+     * @return 角度 (弧度)
+     * @note 用于需要单圈位置的场景
+     */
+    float getWrappedAngle() {
         int32_t count = getCount();
 
         // 计算在一圈内的位置
@@ -140,15 +156,6 @@ public:
 
         float angle = static_cast<float>(countInRev) / cpr_ * 2.0f * M_PI;
         return angle;
-    }
-
-    /**
-     * @brief 获取绝对角度 (可以超过 2π)
-     * @return 绝对角度 (弧度)
-     */
-    float getAbsoluteAngle() {
-        int32_t count = getCount();
-        return static_cast<float>(count) / cpr_ * 2.0f * M_PI;
     }
 
     /**
@@ -164,16 +171,26 @@ public:
      * @param dt 时间间隔 (秒)
      */
     void update(float dt) {
-        static int32_t prevCount = 0;
         int32_t currentCount = getCount();
 
         if (dt > 0) {
-            int32_t delta = currentCount - prevCount;
+            int32_t delta = currentCount - prevCount_;
             float deltaAngle = static_cast<float>(delta) / cpr_ * 2.0f * M_PI;
-            velocity_ = deltaAngle / dt;
+            float rawVelocity = deltaAngle / dt;
+
+            // 低通滤波: velocity = alpha * raw + (1-alpha) * previous
+            velocity_ = velocityFilter_ * rawVelocity + (1.0f - velocityFilter_) * velocity_;
         }
 
-        prevCount = currentCount;
+        prevCount_ = currentCount;
+    }
+
+    /**
+     * @brief 设置速度滤波系数
+     * @param alpha 滤波系数 (0-1, 越小越平滑, 默认0.1)
+     */
+    void setVelocityFilter(float alpha) {
+        velocityFilter_ = alpha;
     }
 
     /**
@@ -238,6 +255,8 @@ private:
     float velocity_;
     int32_t overflow_;
     bool initialized_;
+    float velocityFilter_;
+    int32_t prevCount_;
 };
 
 /**

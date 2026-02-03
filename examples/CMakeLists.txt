@@ -19,3 +19,10 @@ target_link_libraries(trajectory_tracking_example PRIVATE omnimotion)
 # Teach playback example
 add_executable(teach_playback_example teach_playback/main.cpp)
 target_link_libraries(teach_playback_example PRIVATE omnimotion)
+
+# DC motor L298N example (STM32)
+# Note: This example requires STM32 HAL, only builds with STM32 toolchain
+if(DEFINED STM32_FAMILY)
+    add_executable(dc_motor_l298n_example dc_motor_l298n/main.cpp)
+    target_link_libraries(dc_motor_l298n_example PRIVATE omnimotion)
+endif()

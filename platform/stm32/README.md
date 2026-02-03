@@ -23,6 +23,25 @@
 - STM32H7 系列
 - STM32G4 系列
 
+## API 说明
+
+### 编码器 (Stm32Encoder)
+
+```cpp
+Stm32Encoder encoder(&htim2);
+encoder.setResolution(4096);
+encoder.init();
+
+// 在控制循环中
+encoder.update(dt);
+float angle = encoder.getAngle();           // 绝对角度 (可超过 2π)
+float wrapped = encoder.getWrappedAngle();  // 单圈角度 [0, 2π)
+float velocity = encoder.getVelocity();
+
+// 速度滤波 (可选)
+encoder.setVelocityFilter(0.1f);  // 0-1, 越小越平滑
+```
+
 ## 使用方法
 
 ### 1. 使用 CubeMX 配置硬件
@@ -38,6 +57,16 @@
 | ADC1 | 注入模式 | 3通道, TIM1 TRGO 触发 | 电流采样 |
 | TIM6 | 基本定时器 | 10kHz | 控制循环 |
 | CAN1 | 正常模式 | 1Mbps | 通信 |
+
+**DC 电机 (L298N) 推荐配置:**
+
+| 外设 | 模式 | 参数 | 用途 |
+|------|------|------|------|
+| TIM2 | 编码器模式 | TI1 和 TI2 | 编码器读取 |
+| TIM3_CH1 | PWM | 1kHz | ENA 使能 |
+| GPIO | 输出 | PB0, PB1 | IN1, IN2 方向 |
+| TIM6 | 基本定时器 | 1kHz | 控制循环 |
+| USART2 | 异步 | 115200 | 串口调试 |
 
 ### 2. 包含头文件
 
@@ -218,6 +247,69 @@ extern "C" void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         motor->update(0.0001f);  // 10kHz
         bldc->update();
         encoder->update(0.0001f);
+    }
+}
+```
+
+### DC 电机 L298N 控制
+
+```cpp
+#include "platform/stm32/stm32_hal.hpp"
+#include <omni/driver/dc_motor_driver.hpp>
+#include <omni/app/motor_controller.hpp>
+#include <omni/motion/scurve_profile.hpp>
+
+using namespace omni::platform::stm32;
+using namespace omni::driver;
+using namespace omni::app;
+
+// L298N PWM 封装 (实现 IPwm 接口)
+class L298NPwm : public omni::hal::IPwm {
+public:
+    L298NPwm(TIM_HandleTypeDef* htim, uint32_t channel,
+             GPIO_TypeDef* in1Port, uint16_t in1Pin,
+             GPIO_TypeDef* in2Port, uint16_t in2Pin);
+    void setDuty(float duty) override;
+    void enable(bool en) override;
+    // ... 完整实现见 examples/dc_motor_l298n/main.cpp
+};
+
+// 全局对象
+L298NPwm l298n(&htim3, TIM_CHANNEL_1, GPIOB, GPIO_PIN_0, GPIOB, GPIO_PIN_1);
+Stm32Encoder encoder(&htim2);
+DcMotorDriver motor(&l298n, nullptr);
+MotorController ctrl(&motor);
+
+// S曲线轨迹
+omni::motion::MotionConstraints constraints = {200.0f, 100.0f, 0, 200.0f, 0};
+omni::motion::SCurveProfile trajectory(constraints);
+
+void setup() {
+    encoder.setResolution(1336);  // 334线 x 4
+    encoder.init();
+    encoder.setVelocityFilter(0.1f);  // 速度滤波
+
+    motor.init();
+    motor.setVelocityPid(0.01f, 0.02f, 0.0001f);
+
+    ctrl.setConstraints(constraints);
+    ctrl.setPositionPid(3.0f, 0.0f, 0.05f);
+    ctrl.enable();
+    ctrl.home();
+}
+
+void controlLoop(float dt) {
+    encoder.update(dt);
+    ctrl.update(dt);
+}
+
+// 轨迹规划 (支持运行中重规划)
+void planTrajectory(float endPos) {
+    float startPos = encoder.getAngle();
+    float startVel = encoder.getVelocity();
+
+    if (trajectory.plan(startPos, endPos, startVel, 0)) {
+        ctrl.moveTo(endPos);
     }
 }
 ```
